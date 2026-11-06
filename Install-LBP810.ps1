@@ -118,32 +118,41 @@ function Verify-Binary {
 }
 
 function Ensure-NativeBinary {
-    if (Verify-Binary) {
-        Log 'Cached native executable verified (SHA-256).'
-        $Result.nativeAvailable = $true
-        return
-    }
-    Log 'Downloading native bridge from GitHub dev prerelease.'
+    # The prerelease is updated on each successful GitHub Actions build.
+    # Comparing only a locally cached checksum is NOT enough to detect fixes.
     $tempExe = Join-Path $BinDir 'lbp810-bridge.exe.part'
     $tempSha = Join-Path $BinDir 'lbp810-bridge.sha256.part'
+    Log 'Checking latest GitHub dev release checksum.'
     try {
-        Invoke-WebRequest -Uri ($RepoBase + '/lbp810-bridge.exe') -OutFile $tempExe -UseBasicParsing
         Invoke-WebRequest -Uri ($RepoBase + '/lbp810-bridge.sha256') -OutFile $tempSha -UseBasicParsing
         $expected = ((Get-Content -LiteralPath $tempSha -Raw).Trim()).ToLowerInvariant()
+        if ($expected -notmatch '^[a-f0-9]{64}$') { throw 'Invalid remote checksum format.' }
+
+        if (Verify-Binary) {
+            $cachedHash = (Get-FileHash -LiteralPath $ExePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($cachedHash -eq $expected) {
+                $Result.nativeAvailable = $true
+                Log 'Cached binary matches latest verified GitHub dev release.'
+                return
+            }
+            Log 'GitHub has a newer binary; updating cached version.'
+        }
+        Invoke-WebRequest -Uri ($RepoBase + '/lbp810-bridge.exe') -OutFile $tempExe -UseBasicParsing
         $actual = (Get-FileHash -LiteralPath $tempExe -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($expected -notmatch '^[a-f0-9]{64}$' -or $actual -ne $expected) {
-            throw 'SHA-256 mismatch; refusing to execute downloaded binary.'
+        if ($actual -ne $expected) {
+            throw 'GitHub release SHA-256 mismatch (possibly being updated); refusing to run it.'
         }
         Move-Item -LiteralPath $tempExe -Destination $ExePath -Force
         Move-Item -LiteralPath $tempSha -Destination $ChecksumPath -Force
+        if (-not (Verify-Binary)) { throw 'Updated executable failed integrity check.' }
     } catch {
-        throw ("Verified native binary unavailable. GitHub Actions dev build may be missing: " + $_.Exception.Message)
+        throw ("Cannot verify latest GitHub binary. Stop rather than using a possibly outdated prototype: " +
+            $_.Exception.Message)
     } finally {
         Remove-Item -LiteralPath $tempExe, $tempSha -Force -ErrorAction SilentlyContinue
     }
-    if (-not (Verify-Binary)) { throw 'Downloaded executable failed integrity recheck.' }
     $Result.nativeAvailable = $true
-    Log 'Native binary downloaded and SHA-256 verified.'
+    Log 'Latest native executable downloaded and SHA-256 verified.'
 }
 
 function Run-Bridge([string]$Command, [int]$TimeoutSeconds) {
