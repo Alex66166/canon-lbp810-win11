@@ -1,5 +1,18 @@
 # Canon LBP-810 for Windows 11 x64
 
+## Запуск одной командой (Windows 11)
+
+Подключите Canon LBP-810 к USB, включите принтер, вставьте бумагу A4, откройте PowerShell и выполните **одну строку**:
+
+~~~powershell
+irm https://raw.githubusercontent.com/Alex66166/canon-lbp810-win11/main/Start-LBP810.ps1 | iex
+~~~
+
+Эта команда скачает и выполнит загрузчик из данного GitHub-репозитория; загрузчик сам скачает актуальную версию основного скрипта, запустит обнаружение USB-устройства, диагностику CAPT и **попытается распечатать одну тестовую страницу**. Никаких других ручных команд не требуется. Результаты — в консоли и в %LOCALAPPDATA%\CanonLBP810\Logs.
+
+**Важно:** тест прямого USB/CAPT — это экспериментальный прототип, **не полноценный драйвер Windows**. На реальном Canon LBP-810 он ещё не проверен, и установка принтера для обычной печати Ctrl+P пока не реализована. Поскольку команда сразу выполняет код из GitHub, сначала ознакомьтесь с ним, если вы не доверяете репозиторию.
+
+
 Experimental native printing project for the Canon LBP-810 (USB VID 04A9 / PID 260A), **without Linux, WSL, virtual machines, or old Canon x86 drivers**.
 
 ## Status: hardware-testing prototype, NOT a finished printer driver
