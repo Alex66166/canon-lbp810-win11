@@ -4,6 +4,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: dev-release-main
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -32,6 +36,11 @@ jobs:
             $parseErrors | Format-List | Out-String | Write-Host
             exit 1
           }
+      - name: Test PowerShell bootstrap without hardware
+        shell: pwsh
+        run: |
+          & ./Install-LBP810.ps1 -SelfTest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build SHA256 checksums
         shell: pwsh
         run: |
