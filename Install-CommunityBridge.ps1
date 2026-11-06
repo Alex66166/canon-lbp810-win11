@@ -155,11 +155,49 @@ function Run-Installer {
     Log 'Installed Canon LBP-810 queue with Microsoft PS Class Driver; service running.'
 }
 function Print-TestPage {
+    $bridgeLog = Join-Path $env:ProgramData 'Canon LBP-810 Bridge\spool\bridge.log'
+    $beforeBytes = 0L
+    if (Test-Path -LiteralPath $bridgeLog -PathType Leaf) {
+        $beforeBytes = (Get-Item -LiteralPath $bridgeLog).Length
+    }
     Log 'Submitting ONE standard Windows test page.'
     & $PsExe -NoProfile -ExecutionPolicy Bypass -File $TestPage
     if ($LASTEXITCODE -ne 0) { throw 'Windows test-page submission failed.' }
-    Log 'Test job submitted. Check physically whether the page printed.'
-    Log 'Bridge log: C:\ProgramData\Canon LBP-810 Bridge\spool\bridge.log'
+    Log 'PrintUI successfully submitted the job. Waiting for CAPT bridge completion log...'
+    $deadline = (Get-Date).AddSeconds(100)
+    $confirmed = $false
+    do {
+        Start-Sleep -Seconds 2
+        if (-not (Test-Path -LiteralPath $bridgeLog -PathType Leaf)) { continue }
+        try {
+            $file = [IO.File]::Open($bridgeLog, [IO.FileMode]::Open,
+                [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+            try {
+                if ($file.Length -lt $beforeBytes) { $beforeBytes = 0L }
+                [void]$file.Seek($beforeBytes, [IO.SeekOrigin]::Begin)
+                $reader = New-Object IO.StreamReader($file)
+                $newText = $reader.ReadToEnd()
+                if ($newText -match '(?im)\bCompleted job\s+\d+\b') {
+                    $confirmed = $true
+                    break
+                }
+                if ($newText -match '(?im)\b(error|failed|exception)\b') {
+                    Log 'Bridge log contains a possible error. Review it if printing fails.'
+                }
+            } finally {
+                $file.Dispose()
+            }
+        } catch {
+            Log ('Bridge log read postponed: ' + $_.Exception.Message)
+        }
+    } while ((Get-Date) -lt $deadline)
+    if ($confirmed) {
+        Log 'The upstream CAPT bridge reported a completed print job.'
+        Log 'Check the paper physically: the software cannot verify page quality.'
+    } else {
+        throw "Windows accepted the job, but bridge completion was not observed within 100 seconds. Inspect $bridgeLog"
+    }
+    Log ('Bridge log: ' + $bridgeLog)
 }
 
 try {
