@@ -239,6 +239,8 @@ void printStatus(const Capt::ExtendedStatus& status) {
               << '\n';
 }
 
+// The bridge verifies protocol progress, not the physical image on paper.
+// If a command fails after unit reservation, best-effort release the unit.
 int statusOrPrint(const std::wstring& path, bool print) {
     UsbPrintStreambuf device;
     device.open(path);
@@ -248,7 +250,7 @@ int statusOrPrint(const std::wstring& path, bool print) {
     printStatus(initial);
     if (!print) return 0;
     if (!initial.Ready() || initial.FatalError()) {
-        std::cerr << "Not ready; will not print (paper, cover, cartridge or device error)\n";
+        std::cerr << "Printer is not ready; will not send the test page\n";
         return 5;
     }
 
@@ -257,28 +259,67 @@ int statusOrPrint(const std::wstring& path, bool print) {
     Capt::Compression::ScoaStreambuf encoder(raw, kLineSize, kPageHeight);
     Capt::Utility::BufferedPage page(0, testParams(), &encoder);
 
-    printer.ReserveUnit();
-    printer.ClearError();
-    if (!printer.GoOnline(0)) {
-        printer.ReleaseUnit();
-        std::cerr << "Failed to switch printer to online mode\n";
-        return 6;
+    bool reserved = false;
+    bool online = false;
+    auto cleanup = [&] {
+        if (online) {
+            try { printer.GoOffline(); } catch (const std::exception& e) {
+                std::cerr << "Warning: GoOffline failed: " << e.what() << '\n';
+            }
+            online = false;
+        }
+        if (reserved) {
+            try { printer.ReleaseUnit(); } catch (const std::exception& e) {
+                std::cerr << "Warning: ReleaseUnit failed: " << e.what() << '\n';
+            }
+            reserved = false;
+        }
+    };
+    try {
+        printer.ReserveUnit();
+        reserved = true;
+        printer.ClearError();
+
+        // GoOnline may succeed before a full page has reached the engine.
+        if (!printer.GoOnline(0)) {
+            throw std::runtime_error("CAPT GoOnline failed");
+        }
+        online = true;
+
+        std::cout << "Sending one CAPT A4 600dpi diagnostic page...\n";
+        if (!printer.WriteVideoData(page.Params, page)) {
+            throw std::runtime_error("CAPT rejected the video stream");
+        }
+
+        // WaitPrintEnd() alone may return early if the device is temporarily
+        // idle before the paper actually moves. We require a Printed counter
+        // change AND a subsequent idle/ready state instead of reporting a
+        // false success after merely sending bytes over USB.
+        bool acknowledged = false;
+        Capt::ExtendedStatus state = printer.GetStatus();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(85);
+        while (std::chrono::steady_clock::now() < deadline) {
+            state = printer.GetStatus();
+            if (state.VideoDataError() || state.Rejected() || state.FatalError()) {
+                throw std::runtime_error("CAPT engine reported an error or rejected page");
+            }
+            if (state.Printed != initial.Printed && !state.IsPrinting() && state.Ready()) {
+                acknowledged = true;
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(600));
+        }
+        printStatus(state);
+        if (!acknowledged) {
+            throw std::runtime_error("No CAPT printed-page acknowledgement within timeout; check printer and paper manually");
+        }
+        cleanup();
+        std::cout << "CAPT PRINTED COUNTER ADVANCED; check actual test sheet physically.\n";
+        return 0;
+    } catch (...) {
+        cleanup();
+        throw;
     }
-    std::cout << "Sending one CAPT test page...\n";
-    if (!printer.WriteVideoData(page.Params, page)) {
-        std::cerr << "CAPT video data rejected\n";
-        return 7;
-    }
-    auto final = printer.WaitPrintEnd(std::stop_token{});
-    if (!final || final->VideoDataError() || final->Rejected()) {
-        std::cerr << "CAPT reported a page error or rejected the page\n";
-        return 8;
-    }
-    printStatus(*final);
-    printer.GoOffline();
-    printer.ReleaseUnit();
-    std::cout << "CAPT JOB COMPLETE (software protocol); check printed sheet physically.\n";
-    return 0;
 }
 } // namespace
 
