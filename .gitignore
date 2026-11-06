@@ -1,0 +1,10 @@
+build/
+dist/
+*.exe
+*.pdb
+*.obj
+*.dll
+*.log
+*.json
+.vs/
+.idea/
