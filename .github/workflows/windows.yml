@@ -41,6 +41,18 @@ jobs:
         run: |
           & ./Install-LBP810.ps1 -SelfTest
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Validate GitHub one-command launcher syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path ./Start-LBP810.ps1), [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
+      - name: Test one-command launcher without printer
+        shell: powershell
+        run: |
+          & ./Start-LBP810.ps1 -SelfTest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build SHA256 checksums
         shell: pwsh
         run: |
