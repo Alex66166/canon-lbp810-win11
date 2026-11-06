@@ -67,9 +67,10 @@ function Find-Canon {
         Log ("Device: {0}; {1}; status={2}" -f $device.Name, $device.PNPDeviceID, $device.Status)
     }
     if ($devices.Count -lt 1) { throw 'Canon LBP-810 not found. Connect and power on USB printer first.' }
-    if (-not @($devices | Where-Object {
+    $exactUsbMatches = @($devices | Where-Object {
         $_.PNPDeviceID -match 'VID_04A9&PID_260A'
-    }).Count) {
+    })
+    if ($exactUsbMatches.Count -eq 0) {
         throw 'LBP-810 name was found but USB VID:PID 04A9:260A is not verified.'
     }
     return $devices
