@@ -46,7 +46,7 @@ try {
     $parseErrors = $null
     [System.Management.Automation.Language.Parser]::ParseFile(
         $localScript, [ref]$tokens, [ref]$parseErrors) | Out-Null
-    if (@($parseErrors).Count -ne 0) {
+    if ($null -ne $parseErrors -and $parseErrors.Count -gt 0) {
         throw 'Downloaded PowerShell file contains syntax errors.'
     }
 
