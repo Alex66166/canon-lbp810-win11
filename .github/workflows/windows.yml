@@ -53,6 +53,21 @@ jobs:
         run: |
           & ./Start-LBP810.ps1 -SelfTest
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify pinned Windows community bridge installer syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path ./Install-CommunityBridge.ps1), [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | Format-List
+            exit 1
+          }
+      - name: Test pinned bridge installer metadata without hardware
+        shell: powershell
+        run: |
+          & ./Install-CommunityBridge.ps1 -SelfTest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build SHA256 checksums
         shell: pwsh
         run: |
