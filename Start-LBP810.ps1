@@ -1,11 +1,12 @@
 #requires -version 5.1
 <#
 .SYNOPSIS
-  One-command Canon LBP-810 bootstrap directly from GitHub.
+  One-command Canon LBP-810 native Windows 11 community bridge installation.
 .DESCRIPTION
-  Downloads the latest Install-LBP810.ps1 from this repository and starts it
-  in a separate Windows PowerShell process. The main script detects and tests
-  the USB device; this launcher itself changes no device configuration.
+  Downloads our Install-CommunityBridge.ps1 bootstrap. It verifies a pinned
+  third-party release from jellybebra/canon-lbp810 (v1.0.0) and installs a
+  working Windows print queue + service, subject to UAC approval.
+  No VM, WSL or old Canon x86 driver is needed.
 
   In PowerShell, run:
     irm https://raw.githubusercontent.com/Alex66166/canon-lbp810-win11/main/Start-LBP810.ps1 | iex
@@ -21,9 +22,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
-$source = 'https://raw.githubusercontent.com/Alex66166/canon-lbp810-win11/main/Install-LBP810.ps1'
+$source = 'https://raw.githubusercontent.com/Alex66166/canon-lbp810-win11/main/Install-CommunityBridge.ps1'
 $root = Join-Path $env:LOCALAPPDATA 'CanonLBP810'
-$localScript = Join-Path $root 'Install-LBP810.ps1'
+$localScript = Join-Path $root 'Install-CommunityBridge.ps1'
 $winPS = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 
 try {
@@ -55,7 +56,7 @@ try {
     if ($SkipPrint)      { $cli += '-SkipPrint' }
     if ($SelfTest)       { $cli += '-SelfTest' }
 
-    Write-Host 'Canon LBP-810: running hardware checks...'
+    Write-Host 'Canon LBP-810: checking hardware, installing community bridge and testing Windows queue...'
     & $winPS @cli
     $code = $LASTEXITCODE
     if ($code -ne 0) {
