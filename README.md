@@ -1,87 +1,48 @@
-# Canon LBP-810 for Windows 11 x64
+# Canon LBP-810 — полноценная печать в Windows 11 x64
 
-## Запуск одной командой (Windows 11)
-
-Подключите Canon LBP-810 к USB, включите принтер, вставьте бумагу A4, откройте PowerShell и выполните **одну строку**:
+**Одна команда.** Подключи и включи Canon LBP-810 по USB, вставь бумагу A4, открой PowerShell и выполни:
 
 ~~~powershell
 irm https://raw.githubusercontent.com/Alex66166/canon-lbp810-win11/main/Start-LBP810.ps1 | iex
 ~~~
 
-Эта команда скачает и выполнит загрузчик из данного GitHub-репозитория; загрузчик сам скачает актуальную версию основного скрипта, запустит обнаружение USB-устройства, диагностику CAPT и **попытается распечатать одну тестовую страницу**. Никаких других ручных команд не требуется. Результаты — в консоли и в %LOCALAPPDATA%\CanonLBP810\Logs.
+Запускатель скачает [Install-CommunityBridge.ps1](Install-CommunityBridge.ps1), проверит Windows 11 x64 и USB-идентификатор Canon LBP-810 (VID_04A9/PID_260A), скачает закреплённый релиз, проверит SHA-256 и запросит UAC для его установки. Скрипт проверит очередь и службу Windows, затем отправит **одну стандартную тестовую страницу**. Визуально убедись, что бумага действительно вышла.
 
-**Важно:** тест прямого USB/CAPT — это экспериментальный прототип, **не полноценный драйвер Windows**. На реальном Canon LBP-810 он ещё не проверен, и установка принтера для обычной печати Ctrl+P пока не реализована. Поскольку команда сразу выполняет код из GitHub, сначала ознакомьтесь с ним, если вы не доверяете репозиторию.
+После установки в Windows появится очередь **Canon LBP-810**: обычная печать **Ctrl+P** из Word, Excel, браузера, PDF. Виртуальные машины, WSL и старые 32-битные драйверы не требуются.
 
+**Безопасность:** команда запуска выполняет код из GitHub. Исходники доступны для проверки: [Start-LBP810.ps1](Start-LBP810.ps1), [Install-CommunityBridge.ps1](Install-CommunityBridge.ps1). Система попросит подтверждение администратора (UAC). Не запускай, если не доверяешь стороннему коду. Не является официальным драйвером Canon.
 
-Experimental native printing project for the Canon LBP-810 (USB VID 04A9 / PID 260A), **without Linux, WSL, virtual machines, or old Canon x86 drivers**.
+## Что установится
 
-## Status: hardware-testing prototype, NOT a finished printer driver
+Мы **не выдаём наш экспериментальный USB-тестер за готовый драйвер**. Основой теперь служит проверенный автором физическим тестом сторонний проект **[jellybebra/canon-lbp810](https://github.com/jellybebra/canon-lbp810)**, версия **v1.0.0** (релиз от 23.07.2026). Автор описывает успех в [WRITEUP.md](https://github.com/jellybebra/canon-lbp810/blob/main/WRITEUP.md): стандартная тестовая страница Windows прошла цепочку Windows Spooler → PostScript → Ghostscript → SCoA/CAPT v1 → встроенный usbprint.sys → Canon LBP-810. Принтер ответил увеличением счётчика Printed. **Это тест автора, а не наша независимая проверка на твоём устройстве.**
 
-- USB/PnP discovery, diagnostics and reporting in one PowerShell script.
-- Native Windows x64 USBPRINT transport with libcapt CAPT v1 protocol.
-- Offline compression self-test, printer-status request, and attempted physical A4 600 dpi test pattern.
-- **Not implemented:** normal Windows printer queue, Word/Excel/PDF Ctrl+P integration, document rasterization, or permanent Windows printer installation.
-- **Not yet verified on a physical LBP-810.** USB detection or a successful compile does not prove a page printed.
+Устанавливаются:
+- Очередь: **Canon LBP-810** с системным **Microsoft PS Class Driver**.
+- Служба: **CanonLBP810Bridge**, автозапуск.
+- TCP-порт: только локальный **127.0.0.1:9100**.
+- Журнал: C:\ProgramData\Canon LBP-810 Bridge\spool\bridge.log.
 
-## Quick start on Windows 11 x64
+**Прозрачность источника:** ZIP скачивается напрямую из релиза [jellybebra v1.0.0](https://github.com/jellybebra/canon-lbp810/releases/tag/v1.0.0) без копирования к нам. SHA-256 релиза жёстко закреплён в нашем скрипте по GitHub Release API:
 
-Plug in and power on the LBP-810; load A4 paper. Open PowerShell:
-
-~~~powershell
-$path = Join-Path $env:TEMP 'Install-LBP810.ps1'
-Invoke-WebRequest 'https://raw.githubusercontent.com/Alex66166/canon-lbp810-win11/main/Install-LBP810.ps1' -OutFile $path
-notepad $path
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $path
+~~~text
+f2256e82eecceb928a9e1cedf12636eb5ae031263be799cf89361b4003795a51
 ~~~
 
-The script checks Windows, detects the printer, downloads our built native prototype (and verifies SHA-256), performs an offline test, asks the printer for its CAPT status, and then attempts ONE physical test page. If a stage fails, it stops with a clear result. Diagnostics are saved under %LOCALAPPDATA%\CanonLBP810\Logs (never uploaded).
+Если размер/содержимое архива изменены и hash не совпадает, установка прекращается. Контрольная сумма не заменяет цифровую подпись или независимый аудит. Сторонний пакет использует Ghostscript и устанавливает службу Windows. Перед использованием ознакомься с его кодом. Мы не проверяли его на вредоносное поведение исчерпывающе.
 
-Read-only USB diagnostics, without downloading or printing:
+Установщик оригинального проекта перезапускает USB-устройство, создаёт или обновляет свою очередь, порт и службу. Наш скрипт предварительно останавливается, если обнаруживает конфликт с существующим принтером с тем же именем или неожиданной службой. Для первой установки нужен интернет и права администратора.
 
-~~~powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-LBP810.ps1 -DiagnosticOnly
-~~~
+**Удаление:** в распакованном архиве сохранён штатный Uninstall.cmd. Путь: %LOCALAPPDATA%\CanonLBP810\community-v1.0.0\extracted\Canon-LBP810-Windows11-x64-1.0.0\Uninstall.cmd
 
-Test connection only, without wasting paper:
+## Предыдущий нативный прототип
 
-~~~powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-LBP810.ps1 -SkipPrint
-~~~
+[Install-LBP810.ps1](Install-LBP810.ps1) и каталог [native/](native/) остаются как исследовательские материалы: определяют USB и умеют отправлять диагностические CAPT-команды, но **не создают очередь для Ctrl+P и не проверены на реальном оборудовании**. Автосборка этих исходников в GitHub Actions не является доказательством физической печати. Основная команда выше использует готовый сторонний мост, а не этот прототип.
 
-Script-only self-test without physical hardware:
+## Документация, форумная проверка и лицензии
 
-~~~powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-LBP810.ps1 -SelfTest
-~~~
+- [Готовый Windows 11 мост jellybebra/canon-lbp810](https://github.com/jellybebra/canon-lbp810) — лицензия AGPL-3.0-or-later. Исходный ZIP и Ghostscript остаются у их правообладателей; не копируем исходники в наш MIT-проект.
+- [Альтернативный Windows-мост sodinokibii/lbp810_capt](https://github.com/sodinokibii/lbp810_capt) — требует сборки и доверия тестовому самоподписанному сертификату, поэтому не выбран для автоматической установки.
+- [libcapt, протокол CAPT v1 и SCoA](https://github.com/darkvision77/libcapt) и [captppd, печать через Linux/CUPS](https://github.com/darkvision77/captppd).
+- [Debian: реальный USB VID_04A9/PID_260A](https://lists.debian.org/debian-printing/2022/08/msg00051.html); [Microsoft: официальный 64-битный CAPT драйвер отсутствует](https://learn.microsoft.com/en-us/answers/questions/2423661/problem-with-canon-printer-lbp-810-installation-in).
 
-If the dev prerelease binary is unavailable or CI fails, the script reports a blocker rather than claiming installation succeeded. It never replaces your USB driver, creates a misleading Generic/Text Only printer, or downloads unknown printer drivers.
-
-## Building from source
-
-Windows x64 with Visual Studio 2022 C++ tools, CMake >= 3.21, Git:
-
-~~~powershell
-cmake -S native -B build -A x64
-cmake --build build --config Release
-.\build\Release\lbp810-bridge.exe --self-test
-.\build\Release\lbp810-bridge.exe --list
-.\build\Release\lbp810-bridge.exe --status
-.\build\Release\lbp810-bridge.exe --print-test
-~~~
-
-Uses pinned upstream libcapt (BSD-2-Clause). This build and USB workflow are experimental until physically validated.
-
-## Design
-
-Built-in Windows USB printer class driver (usbprint.sys) => SetupAPI USB interface => CreateFile / ReadFile / WriteFile => libcapt CAPT v1 and SCoA => Canon LBP-810.
-
-The native bridge is an early **USB protocol test tool**, not an installed print queue. Standard Ctrl+P requires a Windows spooler integration, page rasterization and full job management.
-
-## References
-
-- https://github.com/darkvision77/libcapt
-- https://learn.microsoft.com/en-us/windows-hardware/drivers/print/usb-printing
-- https://learn.microsoft.com/en-us/windows-hardware/drivers/print/programming-considerations-for-usbprint
-- https://files.canon-europe.com/files/soft26493/Manual/LBP810_UG_EN.PDF
-
-Independent, community project; not affiliated with Canon.
+Наши собственные файлы распространяются под [MIT](LICENSE). Это независимый проект, не связанный с Canon.
