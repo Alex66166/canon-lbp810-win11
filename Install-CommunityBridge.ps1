@@ -31,6 +31,8 @@ $ArchiveName = 'Canon-LBP810-Windows11-x64-1.0.0.zip'
 # Pinned here to prevent silently installing changed upstream binaries.
 $ExpectedSha256 = 'f2256e82eecceb928a9e1cedf12636eb5ae031263be799cf89361b4003795a51'
 $ArchiveUrl = "https://github.com/$SourceRepo/releases/download/$Version/$ArchiveName"
+# GitHub API is an alternative official download entry point, not a third-party mirror.
+$ArchiveApiUrl = 'https://api.github.com/repos/jellybebra/canon-lbp810/releases/assets/487273787'
 $Root = Join-Path $env:LOCALAPPDATA 'CanonLBP810'
 $Work = Join-Path $Root 'community-v1.0.0'
 $Logs = Join-Path $Root 'Logs'
@@ -54,7 +56,7 @@ function Require-OS {
         throw 'This package is only for x64 Windows.'
     }
     $os = Get-CimInstance -Class Win32_OperatingSystem
-    Log ("Windows: {0}; build {1}; architecture {2}" -f $os.Caption, $os.BuildNumber, $os.OSArchitecture)
+    Log ("Windows build: {0}; 64-bit OS confirmed" -f $os.BuildNumber)
     if ([int]$os.BuildNumber -lt 22000) { throw 'Windows 11 is required.' }
 }
 function Find-Canon {
@@ -106,21 +108,94 @@ function Get-Archive {
         Log 'Pinned release ZIP is already cached and SHA-256 verified.'
         return
     }
-    Log "Downloading audited-by-source upstream $SourceRepo release $Version"
-    Log "Source: $ArchiveUrl"
+
+    Log "Downloading original GitHub release: $SourceRepo $Version"
+    Log "Expected SHA-256: $ExpectedSha256"
     $part = "$Archive.part"
-    try {
-        Invoke-WebRequest -Uri $ArchiveUrl -OutFile $part -UseBasicParsing
-        $actual = (Get-FileHash -LiteralPath $part -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($actual -cne $ExpectedSha256) {
-            throw "ZIP SHA-256 mismatch. Expected $ExpectedSha256, received $actual. Aborting."
+
+    # A GitHub Release asset can fail through some VPNs/proxies with HTTP 504.
+    # Try distinct OFFICIAL GitHub delivery paths. Always verify the pinned hash.
+    # Never trust the remote checksum file or install a partially downloaded ZIP.
+    $sources = @(
+        [pscustomobject]@{ name = 'GitHub release (curl)'; url = $ArchiveUrl; mode = 'curl' },
+        [pscustomobject]@{ name = 'GitHub API release asset (curl)'; url = $ArchiveApiUrl; mode = 'api-curl' },
+        [pscustomobject]@{ name = 'GitHub release (PowerShell)'; url = $ArchiveUrl; mode = 'iwr' },
+        [pscustomobject]@{ name = 'GitHub API release asset (PowerShell)'; url = $ArchiveApiUrl; mode = 'api-iwr' }
+    )
+
+    $attemptLog = @()
+    foreach ($source in $sources) {
+        $maxTries = 2
+        for ($attempt = 1; $attempt -le $maxTries; $attempt++) {
+            Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue
+            Log ("Attempt {0}/{1}: {2}" -f $attempt, $maxTries, $source.name)
+            try {
+                if ($source.mode -like '*curl') {
+                    $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
+                    if (-not (Test-Path -LiteralPath $curl)) {
+                        throw 'Built-in Windows curl.exe unavailable.'
+                    }
+                    $args = @(
+                        '--fail', '--location', '--silent', '--show-error',
+                        '--connect-timeout', '15',
+                        '--max-time', '110',
+                        '--retry', '1',
+                        '--retry-all-errors',
+                        '--retry-delay', '3',
+                        '--output', $part
+                    )
+                    if ($source.mode -eq 'api-curl') {
+                        $args += @('--header', 'Accept: application/octet-stream',
+                                   '--header', 'X-GitHub-Api-Version: 2022-11-28',
+                                   '--header', 'User-Agent: Canon-LBP810-Bootstrap')
+                    }
+                    $args += $source.url
+                    & $curl @args
+                    if ($LASTEXITCODE -ne 0) {
+                        throw ("curl.exe returned {0}" -f $LASTEXITCODE)
+                    }
+                } else {
+                    $params = @{
+                        Uri = $source.url
+                        OutFile = $part
+                        TimeoutSec = 110
+                        UseBasicParsing = $true
+                    }
+                    if ($source.mode -eq 'api-iwr') {
+                        $params.Headers = @{
+                            'Accept' = 'application/octet-stream'
+                            'X-GitHub-Api-Version' = '2022-11-28'
+                            'User-Agent' = 'Canon-LBP810-Bootstrap'
+                        }
+                    }
+                    Invoke-WebRequest @params
+                }
+
+                if (-not (Test-Path -LiteralPath $part -PathType Leaf)) {
+                    throw 'Download did not produce a file.'
+                }
+                $size = (Get-Item -LiteralPath $part).Length
+                Log ("Downloaded {0} bytes; checking SHA-256..." -f $size)
+                $actual = (Get-FileHash -LiteralPath $part -Algorithm SHA256).Hash.ToLowerInvariant()
+                if ($actual -cne $ExpectedSha256) {
+                    throw ("Downloaded data do not match pinned SHA-256 ({0})." -f $actual)
+                }
+                Move-Item -LiteralPath $part -Destination $Archive -Force
+                if (-not (Verify-Archive)) { throw 'Cached release verification failed.' }
+                Log ("Official GitHub release verified via {0}." -f $source.name)
+                return
+            } catch {
+                $msg = [string]$_.Exception.Message
+                Log ("Download failed on {0}: {1}" -f $source.name, $msg)
+                $attemptLog += ("{0}: {1}" -f $source.name, $msg)
+                Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue
+                if ($attempt -lt $maxTries) { Start-Sleep -Seconds (3 * $attempt) }
+            }
         }
-        Move-Item -LiteralPath $part -Destination $Archive -Force
-    } finally {
-        Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue
     }
-    if (-not (Verify-Archive)) { throw 'Release integrity check failed.' }
-    Log 'Pinned release ZIP SHA-256 verification passed.'
+    throw ("No official GitHub download route succeeded. Printer detection is OK, " +
+        "but the ZIP is not installed. Check VPN/proxy access to GitHub Releases. " +
+        "Last error: " + $attemptLog[-1])
 }
 function Extract-Package {
     if (Test-Path -LiteralPath $Extract) {
